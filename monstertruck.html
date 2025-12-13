@@ -1,0 +1,231 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Monster Truck Mayhem!</title>
+    <style>
+        body { margin: 0; background: #111; display: flex; justify-content: center; align-items: center; height: 100vh; flex-direction: column; color: white; font-family: Arial, sans-serif; }
+        canvas { border: 6px solid #f00; background: #333; box-shadow: 0 0 30px #f00; border-radius: 10px; }
+        #hud { font-size: 28px; margin-bottom: 10px; font-weight: bold; display: flex; gap: 30px; }
+        #instructions { margin-top: 10px; max-width: 700px; text-align: center; font-size: 18px; }
+    </style>
+</head>
+<body>
+    <div id="hud">
+        <span id="score">Score: 0</span>
+        <span id="distance">Distance: 0m</span>
+        <span id="highscore">High Score: 0</span>
+    </div>
+    <canvas id="game" width="900" height="400"></canvas>
+    <div id="instructions">SPACE / UP ARROW / TAP to jump (hold longer for higher jumps!)<br>Crush cars for +100 • Hit ramps for big air bonus • Avoid walls!</div>
+
+    <script>
+        const canvas = document.getElementById('game');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const distanceEl = document.getElementById('distance');
+        const highscoreEl = document.getElementById('highscore');
+
+        let truck = { x: 100, y: 300, vy: 0, jumping: false, width: 90, height: 50 };
+        let gravity = 0.85;
+        let jumpPower = -18;
+        let baseSpeed = 5;
+        let speed = baseSpeed;
+        let distance = 0;
+        let score = 0;
+        let highScore = parseInt(localStorage.getItem('mtHighScore')) || 0;
+        highscoreEl.textContent = `High Score: ${highScore}`;
+        let obstacles = [];
+        let gameOver = false;
+        let rampActive = false;
+
+        function spawnObstacle() {
+            const types = ['car', 'wall', 'ramp'];
+            const weights = [0.5, 0.3, 0.2]; // more cars, some walls, occasional ramps
+            let rand = Math.random();
+            let type = 'car';
+            if (rand > 0.5) type = 'wall';
+            if (rand > 0.8) type = 'ramp';
+
+            obstacles.push({
+                x: canvas.width + 200,
+                y: type === 'ramp' ? 340 : 340,
+                width: type === 'car' ? 70 : (type === 'wall' ? 50 : 150),
+                height: type === 'car' ? 35 : (type === 'wall' ? 70 : 20),
+                type: type,
+                crushed: false
+            });
+        }
+
+        function drawTruck() {
+            // Body
+            ctx.fillStyle = '#c00';
+            ctx.fillRect(truck.x, truck.y - 10, truck.width, truck.height);
+            ctx.fillStyle = '#f00';
+            ctx.fillRect(truck.x + 5, truck.y, truck.width - 10, truck.height - 10);
+            
+            // Wheels
+            ctx.fillStyle = '#000';
+            ctx.beginPath();
+            ctx.arc(truck.x + 20, truck.y + 40, 25, 0, Math.PI * 2);
+            ctx.fill();
+            ctx.beginPath();
+            ctx.arc(truck.x + 70, truck.y + 40, 25, 0, Math.PI * 2);
+            ctx.fill();
+            
+            // Flames
+            if (!gameOver && truck.vy >= 0) {
+                ctx.fillStyle = '#ff0';
+                ctx.fillRect(truck.x - 10, truck.y + 15, 20, 15);
+                ctx.fillStyle = '#f80';
+                ctx.fillRect(truck.x - 15, truck.y + 18, 15, 9);
+            }
+        }
+
+        function update() {
+            if (gameOver) return;
+
+            // Physics
+            truck.vy += gravity;
+            truck.y += truck.vy;
+            if (truck.y > 300) {
+                truck.y = 300;
+                truck.vy = 0;
+                truck.jumping = false;
+            }
+
+            // World movement
+            distance += speed;
+            speed = baseSpeed + Math.floor(distance / 5000) * 0.5; // gradual speed up
+            obstacles.forEach(obs => obs.x -= speed);
+
+            // Score from distance
+            let newScore = Math.floor(distance / 10) + score; // base score from distance
+            score = newScore;
+
+            // Spawn
+            if (Math.random() < 0.025) spawnObstacle();
+
+            // Collisions
+            for (let i = obstacles.length - 1; i >= 0; i--) {
+                let obs = obstacles[i];
+                let collision = truck.x + truck.width > obs.x && truck.x < obs.x + obs.width &&
+                                truck.y + truck.height > obs.y && truck.y < obs.y + obs.height;
+
+                if (collision) {
+                    if (obs.type === 'car' && truck.vy > 5 && !obs.crushed) {
+                        score += 100;
+                        obs.crushed = true;
+                        truck.vy = -12; // bounce
+                    } else if (obs.type === 'ramp') {
+                        truck.vy = -22; // huge air!
+                        score += 50;
+                        obs.x = -200; // remove quickly
+                    } else if (obs.type === 'wall') {
+                        gameOver = true;
+                    }
+                }
+
+                if (obs.x < -200) obstacles.splice(i, 1);
+            }
+
+            // Update HUD
+            scoreEl.textContent = `Score: ${score}`;
+            distanceEl.textContent = `Distance: ${Math.floor(distance / 10)}m`;
+
+            // High score check
+            if (score > highScore) {
+                highScore = score;
+                highscoreEl.textContent = `High Score: ${highScore}`;
+                localStorage.setItem('mtHighScore', highScore);
+            }
+        }
+
+        function draw() {
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Ground
+            ctx.fillStyle = '#444';
+            ctx.fillRect(0, 340, canvas.width, 60);
+
+            // Road lines
+            ctx.strokeStyle = '#fff';
+            ctx.lineWidth = 4;
+            ctx.setLineDash([20, 20]);
+            ctx.beginPath();
+            ctx.moveTo(0, 360);
+            ctx.lineTo(canvas.width, 360);
+            ctx.stroke();
+            ctx.setLineDash([]);
+
+            drawTruck();
+
+            // Obstacles
+            obstacles.forEach(obs => {
+                if (obs.type === 'car') {
+                    ctx.fillStyle = obs.crushed ? '#666' : '#00a';
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                    if (obs.crushed) {
+                        ctx.fillStyle = '#f00';
+                        ctx.font = '20px Arial';
+                        ctx.fillText('CRUSHED +100', obs.x, obs.y - 20);
+                    }
+                } else if (obs.type === 'wall') {
+                    ctx.fillStyle = '#888';
+                    ctx.fillRect(obs.x, obs.y, obs.width, obs.height);
+                } else if (obs.type === 'ramp') {
+                    ctx.fillStyle = '#a60';
+                    ctx.beginPath();
+                    ctx.moveTo(obs.x, 360);
+                    ctx.lineTo(obs.x + obs.width, 360);
+                    ctx.lineTo(obs.x + obs.width - 20, obs.y);
+                    ctx.closePath();
+                    ctx.fill();
+                }
+            });
+
+            if (gameOver) {
+                ctx.fillStyle = 'rgba(0,0,0,0.8)';
+                ctx.fillRect(0, 0, canvas.width, canvas.height);
+                ctx.fillStyle = '#fff';
+                ctx.font = '72px Arial';
+                ctx.textAlign = 'center';
+                ctx.fillText('GAME OVER', canvas.width / 2, canvas.height / 2 - 40);
+                ctx.font = '36px Arial';
+                ctx.fillText(`Score: \( {score} | Distance: \){Math.floor(distance / 10)}m`, canvas.width / 2, canvas.height / 2 + 20);
+                ctx.font = '28px Arial';
+                ctx.fillText('Refresh to crush again!', canvas.width / 2, canvas.height / 2 + 80);
+                ctx.textAlign = 'left';
+            }
+        }
+
+        function loop() {
+            update();
+            draw();
+            requestAnimationFrame(loop);
+        }
+
+        // Controls
+        document.addEventListener('keydown', e => {
+            if ((e.key === ' ' || e.key === 'ArrowUp') && !truck.jumping && !gameOver) {
+                e.preventDefault();
+                truck.vy = jumpPower;
+                truck.jumping = true;
+            }
+        });
+
+        canvas.addEventListener('touchstart', e => {
+            e.preventDefault();
+            if (!truck.jumping && !gameOver) {
+                truck.vy = jumpPower;
+                truck.jumping = true;
+            }
+        });
+
+        // Start
+        for (let i = 0; i < 3; i++) spawnObstacle();
+        loop();
+    </script>
+</body>
+</html>
